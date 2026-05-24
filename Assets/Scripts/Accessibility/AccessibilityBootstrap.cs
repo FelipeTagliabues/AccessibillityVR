@@ -35,6 +35,8 @@ namespace Accessibility
         {
             EnsureLowVisionVolume();
             EnableCameraPostProcessing();
+            AddSceneColliders();
+            ConstrainPlayer();
             var hud = BuildHUD(out var statusText, out var blurSlider,
                 out var minimapPanel, out var playerDot, out var targetDot, out var mapRect);
 
@@ -100,6 +102,56 @@ namespace Accessibility
             {
                 var data = cam.GetUniversalAdditionalCameraData();
                 if (data != null) data.renderPostProcessing = true;
+            }
+        }
+
+        // ───────────────────────────── Colliders no cenário ─────────────────────────────
+
+        private void AddSceneColliders()
+        {
+            // Procura objetos com MeshRenderer mas sem Collider e adiciona MeshCollider.
+            // Isso evita atravessar paredes/casas/calçadas que só tinham renderer.
+            var roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+            int added = 0;
+            foreach (var root in roots)
+            {
+                // Pula o próprio _AccessibilityRoot, XR Origin, UI, etc. para não criar colliders em controles/HUD
+                if (root == gameObject) continue;
+                var nameLower = root.name.ToLowerInvariant();
+                if (nameLower.Contains("xr ") || nameLower.Contains("accessibility") ||
+                    nameLower.Contains("ui") || nameLower.Contains("event") ||
+                    nameLower.Contains("simulator") || nameLower.Contains("teleport") ||
+                    nameLower.Contains("interactable") || nameLower.Contains("gerenciador") ||
+                    nameLower.Contains("spawn"))
+                {
+                    continue;
+                }
+
+                foreach (var mf in root.GetComponentsInChildren<MeshFilter>(false))
+                {
+                    if (mf.GetComponent<Collider>() != null) continue;
+                    if (mf.sharedMesh == null) continue;
+                    var mc = mf.gameObject.AddComponent<MeshCollider>();
+                    mc.sharedMesh = mf.sharedMesh;
+                    added++;
+                }
+            }
+            Debug.Log($"[AccessibilityBootstrap] {added} MeshCollider(s) adicionado(s) ao cenário.");
+        }
+
+        // ───────────────────────────── Player constraints ─────────────────────────────
+
+        private void ConstrainPlayer()
+        {
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogWarning("[AccessibilityBootstrap] Camera.main não encontrada — PlayerConstraints não anexado.");
+                return;
+            }
+            if (cam.GetComponent<PlayerConstraints>() == null)
+            {
+                cam.gameObject.AddComponent<PlayerConstraints>();
             }
         }
 
