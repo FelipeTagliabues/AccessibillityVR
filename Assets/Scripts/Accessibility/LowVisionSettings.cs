@@ -63,6 +63,9 @@ namespace Accessibility
 
         private void Apply()
         {
+            // intensity == 0 → desliga o volume inteiro (cena nítida, sem DoF residual)
+            if (_volume != null) _volume.enabled = intensity > 0.001f;
+
             if (_dof != null) _dof.aperture.value = Mathf.Lerp(16f, maxAperture, intensity);
             if (_bloom != null) _bloom.intensity.value = Mathf.Lerp(0f, maxBloomIntensity, intensity);
             if (_color != null)
