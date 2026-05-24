@@ -39,6 +39,7 @@ namespace Accessibility
         {
             EnsureLowVisionVolume();
             EnableCameraPostProcessing();
+            DisableTemplateClutter();
             AddSceneColliders();
             ConstrainPlayer();
             RepositionPlayerNearBooth();
@@ -163,6 +164,53 @@ namespace Accessibility
         }
 
         // ───────────────────────────── Player constraints ─────────────────────────────
+
+        private static readonly string[] ClutterRootNames = new[]
+        {
+            "UI",
+            "Interactables",
+            "Trash Spaw",
+            "GerenciadorLixo",
+            "Lazy Tooltip",
+            "Affordance Callout",
+            "Tutorial Player",
+            "Spatial Panel",
+        };
+
+        private void DisableTemplateClutter()
+        {
+            var roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+            int disabled = 0;
+            foreach (var root in roots)
+            {
+                foreach (var clutter in ClutterRootNames)
+                {
+                    if (root.name.Equals(clutter, System.StringComparison.OrdinalIgnoreCase) ||
+                        root.name.StartsWith(clutter, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (root.activeSelf)
+                        {
+                            root.SetActive(false);
+                            disabled++;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Limpa também o sub-objeto Trash Scene dentro de Cenario (parte da missão antiga)
+            var cenario = GameObject.Find("Cenario");
+            if (cenario != null)
+            {
+                var trash = cenario.transform.Find("Trash Scene");
+                if (trash != null && trash.gameObject.activeSelf)
+                {
+                    trash.gameObject.SetActive(false);
+                    disabled++;
+                }
+            }
+            Debug.Log($"[AccessibilityBootstrap] {disabled} objeto(s) de clutter do VR Template desativado(s).");
+        }
 
         private void RepositionPlayerNearBooth()
         {
