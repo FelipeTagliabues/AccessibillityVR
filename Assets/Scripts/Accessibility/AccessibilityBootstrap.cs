@@ -85,6 +85,9 @@ namespace Accessibility
             var flow = gameObject.AddComponent<GameFlowUI>();
             SetPrivate(flow, "lowVision", lvSettings);
 
+            // Fallback de mouse para clicar nos botões em editor
+            gameObject.AddComponent<MouseClickToButton>();
+
             // MinimapTracker segue o botão da ordem atual, conforme MissionManager avança.
             // Tracker já recalcula a cada frame, basta trocar a referência de target.
             if (MissionManager.Instance != null)
