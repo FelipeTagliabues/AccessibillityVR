@@ -143,16 +143,22 @@ namespace Accessibility
 
         private void ConstrainPlayer()
         {
+            // Anexa PlayerConstraints no XR Origin (root do rig) para que o rig inteiro
+            // — câmera + controles + Camera Offset — seja revertido em colisão.
             var cam = Camera.main;
             if (cam == null)
             {
                 Debug.LogWarning("[AccessibilityBootstrap] Camera.main não encontrada — PlayerConstraints não anexado.");
                 return;
             }
-            if (cam.GetComponent<PlayerConstraints>() == null)
+            var rig = cam.transform.root;
+            if (rig.GetComponent<PlayerConstraints>() == null)
             {
-                cam.gameObject.AddComponent<PlayerConstraints>();
+                rig.gameObject.AddComponent<PlayerConstraints>();
             }
+            // Remove versão antiga na câmera se existir (cenário de hot-reload)
+            var stale = cam.GetComponent<PlayerConstraints>();
+            if (stale != null) Destroy(stale);
         }
 
         // ───────────────────────────── HUD UI ─────────────────────────────
