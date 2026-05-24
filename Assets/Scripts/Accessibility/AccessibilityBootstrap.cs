@@ -3,6 +3,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
@@ -35,6 +36,7 @@ namespace Accessibility
         void Awake()
         {
             EnsureLowVisionVolume();
+            EnableCameraPostProcessing();
             var hud = BuildHUD(out var statusText, out var blurSlider,
                 out var minimapPanel, out var playerDot, out var targetDot, out var mapRect);
 
@@ -90,6 +92,15 @@ namespace Accessibility
             go.transform.SetParent(transform);
             go.AddComponent<Volume>();
             go.AddComponent<LowVisionSettings>();
+        }
+
+        private void EnableCameraPostProcessing()
+        {
+            foreach (var cam in Camera.allCameras)
+            {
+                var data = cam.GetUniversalAdditionalCameraData();
+                if (data != null) data.renderPostProcessing = true;
+            }
         }
 
         // ───────────────────────────── HUD UI ─────────────────────────────
@@ -296,15 +307,8 @@ namespace Accessibility
                 if (go.GetComponent<Collider>() == null)
                 {
                     var col = go.AddComponent<BoxCollider>();
-                    // Tenta dimensionar pela bounds dos filhos com renderer
-                    var rends = go.GetComponentsInChildren<Renderer>();
-                    if (rends.Length > 0)
-                    {
-                        var b = rends[0].bounds;
-                        for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
-                        col.center = go.transform.InverseTransformPoint(b.center);
-                        col.size = b.size;
-                    }
+                    col.size = Vector3.one;
+                    col.center = Vector3.zero;
                 }
 
                 if (go.GetComponent<XRBaseInteractable>() == null)
@@ -344,7 +348,7 @@ namespace Accessibility
         {
             _toggleAction = new InputAction("ToggleHUD", InputActionType.Button);
             _toggleAction.AddBinding("<XRController>{LeftHand}/secondaryButton");
-            _toggleAction.AddBinding("<Keyboard>/h"); // fallback p/ teste sem headset
+            _toggleAction.AddBinding("<Keyboard>/backquote"); // fallback p/ teste sem headset (tecla ` no topo-esq)
             _toggleAction.Enable();
         }
 
