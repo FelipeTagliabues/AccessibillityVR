@@ -18,12 +18,13 @@ namespace Accessibility
 
         private GameObject _startMenu;
         private GameObject _victoryScreen;
+        private GameObject _gameOverScreen;
 
         void Start()
         {
             _startMenu = BuildMenu("StartMenu",
                 title: "AccessibillityVR",
-                subtitle: "Experimente o mundo com baixa visão.\nAchar e apertar o botão correto na cena.",
+                subtitle: "Experimente o mundo com baixa visão.\nClique os botões na ordem correta.",
                 primaryLabel: "Começar Jogo",
                 primaryAction: StartGame,
                 secondaryLabel: "Sair",
@@ -31,13 +32,21 @@ namespace Accessibility
 
             _victoryScreen = BuildMenu("VictoryScreen",
                 title: "MISSÃO CUMPRIDA!",
-                subtitle: "Você encontrou o botão certo.\nObrigado por experimentar a baixa visão.",
+                subtitle: "Você encontrou todos os botões na ordem certa.\nObrigado por experimentar a baixa visão.",
                 primaryLabel: "Jogar Novamente",
                 primaryAction: Replay,
                 secondaryLabel: "Sair",
                 secondaryAction: QuitGame);
-
             _victoryScreen.SetActive(false);
+
+            _gameOverScreen = BuildMenu("GameOverScreen",
+                title: "VOCÊ FOI ATROPELADO",
+                subtitle: "Atravessar a rua sem enxergar bem é perigoso.\nTente de novo, com mais cuidado.",
+                primaryLabel: "Tentar de Novo",
+                primaryAction: Replay,
+                secondaryLabel: "Sair",
+                secondaryAction: QuitGame);
+            _gameOverScreen.SetActive(false);
 
             if (lowVision != null) lowVision.SetIntensity(0f); // sem catarata durante o menu
             PositionInFrontOfCamera(_startMenu);
@@ -46,6 +55,7 @@ namespace Accessibility
             {
                 MissionManager.Instance.OnMissionComplete += OnMissionComplete;
             }
+            CarHitDetector.OnPlayerHit += OnPlayerHit;
         }
 
         void OnDestroy()
@@ -54,6 +64,15 @@ namespace Accessibility
             {
                 MissionManager.Instance.OnMissionComplete -= OnMissionComplete;
             }
+            CarHitDetector.OnPlayerHit -= OnPlayerHit;
+        }
+
+        private void OnPlayerHit()
+        {
+            if (_gameOverScreen == null || _gameOverScreen.activeSelf) return;
+            if (lowVision != null) lowVision.SetIntensity(0f);
+            _gameOverScreen.SetActive(true);
+            PositionInFrontOfCamera(_gameOverScreen);
         }
 
         private void StartGame()

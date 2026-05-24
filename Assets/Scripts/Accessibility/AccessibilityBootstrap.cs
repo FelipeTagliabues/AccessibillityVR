@@ -41,6 +41,8 @@ namespace Accessibility
             EnableCameraPostProcessing();
             AddSceneColliders();
             ConstrainPlayer();
+            RepositionPlayerNearBooth();
+            SetupCars();
             var hud = BuildHUD(out var statusText, out var blurSlider,
                 out var minimapPanel, out var playerDot, out var targetDot, out var mapRect);
 
@@ -161,6 +163,40 @@ namespace Accessibility
         }
 
         // ───────────────────────────── Player constraints ─────────────────────────────
+
+        private void RepositionPlayerNearBooth()
+        {
+            var booth = GameObject.Find("Telephone Booth");
+            var cam = Camera.main;
+            if (booth == null || cam == null)
+            {
+                Debug.LogWarning("[AccessibilityBootstrap] Telephone Booth ou Camera.main não encontrados — não reposicionei o player.");
+                return;
+            }
+            var rig = cam.transform.root;
+            // 2m na frente da cabine (forward da booth aponta para fora da porta)
+            var spawn = booth.transform.position + booth.transform.forward * 2f;
+            spawn.y = rig.position.y;
+            rig.position = spawn;
+            // Olha para a cabine (vira-se 180° p/ ver a cena à frente)
+            rig.LookAt(new Vector3(booth.transform.position.x, rig.position.y, booth.transform.position.z));
+            rig.Rotate(0f, 180f, 0f);
+            Debug.Log($"[AccessibilityBootstrap] Player reposicionado em {spawn} (perto da cabine).");
+        }
+
+        private void SetupCars()
+        {
+            int added = 0;
+            foreach (var car in FindObjectsOfType<MonoBehaviour>())
+            {
+                // Pega scripts CarMovement (existente no projeto) como marcador de "isso é carro"
+                if (car.GetType().Name != "CarMovement") continue;
+                if (car.GetComponent<CarHitDetector>() != null) continue;
+                car.gameObject.AddComponent<CarHitDetector>();
+                added++;
+            }
+            Debug.Log($"[AccessibilityBootstrap] CarHitDetector adicionado em {added} carro(s).");
+        }
 
         private void ConstrainPlayer()
         {
