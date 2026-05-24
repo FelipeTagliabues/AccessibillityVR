@@ -31,8 +31,6 @@ namespace Accessibility
         [Header("Player (auto se vazio: Camera.main)")]
         [SerializeField] private Transform playerOverride;
 
-        private InputAction _toggleAction;
-
         void Awake()
         {
             EnsureLowVisionVolume();
@@ -72,11 +70,13 @@ namespace Accessibility
                 blurSlider.onValueChanged.AddListener(lvSettings.SetIntensity);
             }
 
-            // HUDToggle on this GameObject
-            CreateToggleAction();
+            // HUDToggle on this GameObject — self-cria sua InputAction interna
             var toggle = gameObject.AddComponent<HUDToggle>();
             SetPrivate(toggle, "hud", hud);
-            SetPrivateInputActionReference(toggle, "toggleAction", _toggleAction);
+
+            // GameFlowUI — menu inicial + tela de vitória
+            var flow = gameObject.AddComponent<GameFlowUI>();
+            SetPrivate(flow, "lowVision", lvSettings);
 
             Debug.Log($"[AccessibilityBootstrap] OK. PushButtons encontrados: {pushButtons.Count}. Alvo: '{(target != null ? target.name : "nenhum")}'.");
         }
@@ -342,16 +342,6 @@ namespace Accessibility
             }
         }
 
-        // ───────────────────────────── Input action ─────────────────────────────
-
-        private void CreateToggleAction()
-        {
-            _toggleAction = new InputAction("ToggleHUD", InputActionType.Button);
-            _toggleAction.AddBinding("<XRController>{LeftHand}/secondaryButton");
-            _toggleAction.AddBinding("<Keyboard>/backquote"); // fallback p/ teste sem headset (tecla ` no topo-esq)
-            _toggleAction.Enable();
-        }
-
         // ───────────────────────────── Reflection helpers ─────────────────────────────
 
         private static void SetPrivate(object obj, string fieldName, object value)
@@ -360,19 +350,6 @@ namespace Accessibility
                 | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
             if (f != null) f.SetValue(obj, value);
             else Debug.LogWarning($"[Bootstrap] campo '{fieldName}' não encontrado em {obj.GetType().Name}");
-        }
-
-        private static void SetPrivateInputActionReference(object obj, string fieldName, InputAction action)
-        {
-            // HUDToggle espera um InputActionReference, mas criamos InputAction direto.
-            // Workaround: cria reference em runtime apontando para a action via asset criado em memória.
-            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
-            var map = asset.AddActionMap("HUDMap");
-            var newAction = map.AddAction(action.name, InputActionType.Button);
-            foreach (var binding in action.bindings) newAction.AddBinding(binding.path);
-            asset.Enable();
-            var reference = InputActionReference.Create(newAction);
-            SetPrivate(obj, fieldName, reference);
         }
     }
 }
