@@ -16,46 +16,64 @@ namespace Accessibility
         [SerializeField] private AudioClip winClip;
         [SerializeField] private AudioClip wrongClip;
 
+        [Header("Sequência")]
+        [Tooltip("Total de botões da missão (1..N).")]
+        [SerializeField] private int totalSteps = 3;
+
         [Header("Mensagens")]
-        [SerializeField] private string idleMessage = "Procure o botão correto.";
-        [SerializeField] private string wrongMessage = "Não é esse botão. Tente outro.";
+        [SerializeField] private string idleMessageTemplate = "Clique o botão {step} de {total}.";
+        [SerializeField] private string wrongMessage = "Ordem errada! Recomeçando do botão 1.";
         [SerializeField] private string winMessage = "MISSÃO CUMPRIDA!";
 
         public event Action OnMissionComplete;
+        public event Action<int> OnStepAdvanced; // próximo step esperado
 
+        private int _expectedStep = 1;
         private bool _completed;
 
         void Awake()
         {
-            if (Instance != null && Instance != this)
-            {
-                Destroy(this);
-                return;
-            }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
         }
 
-        void Start()
-        {
-            SetStatus(idleMessage);
-        }
+        void Start() => RefreshStatus();
+
+        public int CurrentExpectedStep => _expectedStep;
 
         public void ReportPress(ButtonMission btn)
         {
             if (_completed) return;
 
-            if (btn.isTarget)
+            if (btn.order == _expectedStep)
             {
-                _completed = true;
-                SetStatus(winMessage);
-                Play(winClip);
-                OnMissionComplete?.Invoke();
+                _expectedStep++;
+                if (_expectedStep > totalSteps)
+                {
+                    _completed = true;
+                    SetStatus(winMessage);
+                    Play(winClip);
+                    OnMissionComplete?.Invoke();
+                }
+                else
+                {
+                    RefreshStatus();
+                    OnStepAdvanced?.Invoke(_expectedStep);
+                }
             }
             else
             {
+                _expectedStep = 1;
                 SetStatus(wrongMessage);
                 Play(wrongClip);
+                OnStepAdvanced?.Invoke(_expectedStep);
             }
+        }
+
+        private void RefreshStatus()
+        {
+            SetStatus(idleMessageTemplate.Replace("{step}", _expectedStep.ToString())
+                                          .Replace("{total}", totalSteps.ToString()));
         }
 
         private void SetStatus(string text)

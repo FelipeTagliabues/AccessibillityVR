@@ -21,8 +21,12 @@ namespace Accessibility
         [SerializeField] private Vector2 worldMax = new Vector2(30f, 30f);
 
         [Header("Missão")]
-        [Tooltip("Índice do PushButton (entre os encontrados na cena) que será o alvo.")]
-        [SerializeField] private int targetButtonIndex = 0;
+        [Tooltip("Tamanho da fonte do número em cada botão. Pequeno = difícil de ler com catarata.")]
+        [SerializeField] private float buttonNumberFontSize = 14f;
+        [Tooltip("Altura (m) acima do botão onde o número aparece.")]
+        [SerializeField] private float buttonNumberHeight = 0.4f;
+        [Tooltip("Tamanho do BoxCollider de cada PushButton (cubo).")]
+        [SerializeField] private float buttonColliderSize = 1.5f;
 
         [Header("Áudio (opcional)")]
         [SerializeField] private AudioClip winClip;
@@ -41,12 +45,13 @@ namespace Accessibility
                 out var minimapPanel, out var playerDot, out var targetDot, out var mapRect);
 
             var player = playerOverride != null ? playerOverride : (Camera.main != null ? Camera.main.transform : null);
-            var pushButtons = SetupPushButtons(out var target);
+            var pushButtons = SetupPushButtons();
 
-            // MinimapTracker
+            // MinimapTracker — aponta para o PRIMEIRO botão da sequência (order=1)
+            var firstButton = pushButtons.Count > 0 ? pushButtons[0] : null;
             var tracker = minimapPanel.gameObject.AddComponent<MinimapTracker>();
             SetPrivate(tracker, "player", player);
-            SetPrivate(tracker, "target", target != null ? target.transform : null);
+            SetPrivate(tracker, "target", firstButton != null ? firstButton.transform : null);
             SetPrivate(tracker, "worldMin", worldMin);
             SetPrivate(tracker, "worldMax", worldMax);
             SetPrivate(tracker, "mapRect", mapRect);
@@ -80,7 +85,20 @@ namespace Accessibility
             var flow = gameObject.AddComponent<GameFlowUI>();
             SetPrivate(flow, "lowVision", lvSettings);
 
-            Debug.Log($"[AccessibilityBootstrap] OK. PushButtons encontrados: {pushButtons.Count}. Alvo: '{(target != null ? target.name : "nenhum")}'.");
+            // MinimapTracker segue o botão da ordem atual, conforme MissionManager avança.
+            // Tracker já recalcula a cada frame, basta trocar a referência de target.
+            if (MissionManager.Instance != null)
+            {
+                MissionManager.Instance.OnStepAdvanced += step =>
+                {
+                    if (step >= 1 && step <= pushButtons.Count)
+                    {
+                        SetPrivate(tracker, "target", pushButtons[step - 1].transform);
+                    }
+                };
+            }
+
+            Debug.Log($"[AccessibilityBootstrap] OK. PushButtons encontrados: {pushButtons.Count}.");
         }
 
         // ───────────────────────────── Low Vision Volume ─────────────────────────────
@@ -347,9 +365,8 @@ namespace Accessibility
 
         // ───────────────────────────── PushButtons setup ─────────────────────────────
 
-        private List<ButtonMission> SetupPushButtons(out ButtonMission target)
+        private List<ButtonMission> SetupPushButtons()
         {
-            target = null;
             var found = new List<ButtonMission>();
             var roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
             var allButtons = new List<GameObject>();
@@ -358,16 +375,16 @@ namespace Accessibility
                 CollectByName(root.transform, "PushButton", allButtons);
             }
 
+            int order = 1;
             foreach (var go in allButtons)
             {
-                if (go.GetComponent<ButtonMission>() != null) continue; // já configurado
+                if (go.GetComponent<ButtonMission>() != null) continue;
 
-                if (go.GetComponent<Collider>() == null)
-                {
-                    var col = go.AddComponent<BoxCollider>();
-                    col.size = Vector3.one;
-                    col.center = Vector3.zero;
-                }
+                // BoxCollider grande o suficiente p/ ser facilmente alvo de raio
+                var col = go.GetComponent<BoxCollider>();
+                if (col == null) col = go.AddComponent<BoxCollider>();
+                col.size = Vector3.one * buttonColliderSize;
+                col.center = Vector3.up * (buttonColliderSize * 0.5f);
 
                 if (go.GetComponent<XRBaseInteractable>() == null)
                 {
@@ -375,16 +392,44 @@ namespace Accessibility
                 }
 
                 var bm = go.AddComponent<ButtonMission>();
+                bm.order = order;
+                AddNumberLabel(go, order, buttonNumberFontSize, buttonNumberHeight);
                 found.Add(bm);
-            }
-
-            if (found.Count > 0)
-            {
-                int idx = Mathf.Clamp(targetButtonIndex, 0, found.Count - 1);
-                found[idx].isTarget = true;
-                target = found[idx];
+                order++;
             }
             return found;
+        }
+
+        private static void AddNumberLabel(GameObject button, int order, float fontSize, float height)
+        {
+            var canvasGO = new GameObject($"_OrderLabel_{order}");
+            canvasGO.transform.SetParent(button.transform, false);
+            canvasGO.transform.localPosition = new Vector3(0f, height, 0f);
+            canvasGO.transform.localScale = Vector3.one * 0.005f;
+
+            var canvas = canvasGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvasGO.AddComponent<CanvasScaler>();
+
+            var rt = canvasGO.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(60f, 60f);
+
+            // Bilboard simples — sempre olha para a câmera
+            canvasGO.AddComponent<BillboardToCamera>();
+
+            var textGO = new GameObject("Number", typeof(RectTransform));
+            textGO.transform.SetParent(canvasGO.transform, false);
+            var trt = textGO.GetComponent<RectTransform>();
+            trt.anchorMin = Vector2.zero;
+            trt.anchorMax = Vector2.one;
+            trt.offsetMin = trt.offsetMax = Vector2.zero;
+
+            var tmp = textGO.AddComponent<TextMeshProUGUI>();
+            tmp.text = order.ToString();
+            tmp.fontSize = fontSize;
+            tmp.fontStyle = FontStyles.Bold;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = new Color(1f, 0.95f, 0.2f);
         }
 
         private static void CollectByName(Transform root, string contains, List<GameObject> result)

@@ -17,22 +17,21 @@ namespace Accessibility
         [SerializeField] private RectTransform playerDot;
         [SerializeField] private RectTransform targetDot;
 
-        void Start()
+        void Update()
         {
-            if (target != null && targetDot != null && mapRect != null)
+            if (mapRect == null) return;
+            if (player != null && playerDot != null)
+            {
+                playerDot.anchoredPosition = WorldToMapPosition(
+                    new Vector2(player.position.x, player.position.z),
+                    worldMin, worldMax, mapRect.rect.size);
+            }
+            if (target != null && targetDot != null)
             {
                 targetDot.anchoredPosition = WorldToMapPosition(
                     new Vector2(target.position.x, target.position.z),
                     worldMin, worldMax, mapRect.rect.size);
             }
-        }
-
-        void Update()
-        {
-            if (player == null || playerDot == null || mapRect == null) return;
-            playerDot.anchoredPosition = WorldToMapPosition(
-                new Vector2(player.position.x, player.position.z),
-                worldMin, worldMax, mapRect.rect.size);
         }
 
         public static Vector2 WorldToMapPosition(Vector2 worldXZ, Vector2 worldMin, Vector2 worldMax, Vector2 mapSize)
