@@ -1,0 +1,374 @@
+using System.Collections.Generic;
+using TMPro;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.Rendering;
+using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
+
+namespace Accessibility
+{
+    /// <summary>
+    /// Bootstrap único da feature: constrói HUD, configura volume, wira PushButtons.
+    /// Adicione este componente a um GameObject vazio na cena (ex.: "AccessibilityBootstrap")
+    /// e tudo funciona em Play Mode, sem setup manual no Editor.
+    /// </summary>
+    public class AccessibilityBootstrap : MonoBehaviour
+    {
+        [Header("Bounds aproximados do cenário (XZ)")]
+        [SerializeField] private Vector2 worldMin = new Vector2(-30f, -30f);
+        [SerializeField] private Vector2 worldMax = new Vector2(30f, 30f);
+
+        [Header("Missão")]
+        [Tooltip("Índice do PushButton (entre os encontrados na cena) que será o alvo.")]
+        [SerializeField] private int targetButtonIndex = 0;
+
+        [Header("Áudio (opcional)")]
+        [SerializeField] private AudioClip winClip;
+        [SerializeField] private AudioClip wrongClip;
+
+        [Header("Player (auto se vazio: Camera.main)")]
+        [SerializeField] private Transform playerOverride;
+
+        private InputAction _toggleAction;
+
+        void Awake()
+        {
+            EnsureLowVisionVolume();
+            var hud = BuildHUD(out var statusText, out var blurSlider,
+                out var minimapPanel, out var playerDot, out var targetDot, out var mapRect);
+
+            var player = playerOverride != null ? playerOverride : (Camera.main != null ? Camera.main.transform : null);
+            var pushButtons = SetupPushButtons(out var target);
+
+            // MinimapTracker
+            var tracker = minimapPanel.gameObject.AddComponent<MinimapTracker>();
+            SetPrivate(tracker, "player", player);
+            SetPrivate(tracker, "target", target != null ? target.transform : null);
+            SetPrivate(tracker, "worldMin", worldMin);
+            SetPrivate(tracker, "worldMax", worldMax);
+            SetPrivate(tracker, "mapRect", mapRect);
+            SetPrivate(tracker, "playerDot", playerDot);
+            SetPrivate(tracker, "targetDot", targetDot);
+
+            // MissionManager
+            var mmGO = new GameObject("MissionManager");
+            mmGO.transform.SetParent(transform);
+            var mm = mmGO.AddComponent<MissionManager>();
+            var src = mmGO.AddComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.spatialBlend = 0f;
+            SetPrivate(mm, "statusText", statusText);
+            SetPrivate(mm, "audioSource", src);
+            SetPrivate(mm, "winClip", winClip);
+            SetPrivate(mm, "wrongClip", wrongClip);
+
+            // Blur slider wiring
+            var lvSettings = FindObjectOfType<LowVisionSettings>();
+            if (lvSettings != null && blurSlider != null)
+            {
+                blurSlider.onValueChanged.AddListener(lvSettings.SetIntensity);
+            }
+
+            // HUDToggle on this GameObject
+            CreateToggleAction();
+            var toggle = gameObject.AddComponent<HUDToggle>();
+            SetPrivate(toggle, "hud", hud);
+            SetPrivateInputActionReference(toggle, "toggleAction", _toggleAction);
+
+            Debug.Log($"[AccessibilityBootstrap] OK. PushButtons encontrados: {pushButtons.Count}. Alvo: '{(target != null ? target.name : "nenhum")}'.");
+        }
+
+        // ───────────────────────────── Low Vision Volume ─────────────────────────────
+
+        private void EnsureLowVisionVolume()
+        {
+            var existing = FindObjectOfType<LowVisionSettings>();
+            if (existing != null) return;
+
+            var go = new GameObject("LowVisionVolume");
+            go.transform.SetParent(transform);
+            go.AddComponent<Volume>();
+            go.AddComponent<LowVisionSettings>();
+        }
+
+        // ───────────────────────────── HUD UI ─────────────────────────────
+
+        private GameObject BuildHUD(out TMP_Text statusText, out Slider blurSlider,
+            out RectTransform minimapPanel, out RectTransform playerDot, out RectTransform targetDot, out RectTransform mapRect)
+        {
+            // Canvas world-space
+            var hudGO = new GameObject("AccessibilityHUD");
+            hudGO.transform.SetParent(transform);
+            hudGO.transform.localPosition = new Vector3(0f, 1.5f, 0.6f);
+            hudGO.transform.localScale = Vector3.one * 0.001f;
+
+            var canvas = hudGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            hudGO.AddComponent<CanvasScaler>();
+            hudGO.AddComponent<GraphicRaycaster>();
+            // Tracked raycaster — necessário para sliders responderem ao raio do controle
+            var trackedType = System.Type.GetType("UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster, Unity.XR.Interaction.Toolkit");
+            if (trackedType != null) hudGO.AddComponent(trackedType);
+
+            var rt = hudGO.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(400f, 500f);
+
+            // Background
+            var bg = CreateUIChild(hudGO.transform, "Background");
+            var bgImage = bg.gameObject.AddComponent<Image>();
+            bgImage.color = new Color(0f, 0f, 0f, 0.75f);
+            bg.anchorMin = Vector2.zero;
+            bg.anchorMax = Vector2.one;
+            bg.offsetMin = Vector2.zero;
+            bg.offsetMax = Vector2.zero;
+
+            // MinimapPanel
+            minimapPanel = CreateUIChild(hudGO.transform, "MinimapPanel");
+            minimapPanel.anchorMin = new Vector2(0.5f, 1f);
+            minimapPanel.anchorMax = new Vector2(0.5f, 1f);
+            minimapPanel.pivot = new Vector2(0.5f, 1f);
+            minimapPanel.anchoredPosition = new Vector2(0f, -20f);
+            minimapPanel.sizeDelta = new Vector2(280f, 280f);
+
+            // MapBackground
+            mapRect = CreateUIChild(minimapPanel, "MapBackground");
+            var mapImg = mapRect.gameObject.AddComponent<Image>();
+            mapImg.color = new Color(0.15f, 0.25f, 0.15f, 1f);
+            mapRect.anchorMin = Vector2.zero;
+            mapRect.anchorMax = Vector2.one;
+            mapRect.offsetMin = Vector2.zero;
+            mapRect.offsetMax = Vector2.zero;
+
+            // Grid lines (visual placeholder simples)
+            for (int i = 1; i < 4; i++)
+            {
+                float t = i / 4f;
+                AddGridLine(mapRect, true, t);
+                AddGridLine(mapRect, false, t);
+            }
+
+            // PlayerDot (azul)
+            playerDot = CreateUIChild(mapRect, "PlayerDot");
+            var pImg = playerDot.gameObject.AddComponent<Image>();
+            pImg.color = new Color(0.2f, 0.6f, 1f, 1f);
+            playerDot.sizeDelta = new Vector2(16f, 16f);
+            playerDot.anchorMin = playerDot.anchorMax = new Vector2(0.5f, 0.5f);
+
+            // TargetDot (vermelho)
+            targetDot = CreateUIChild(mapRect, "TargetDot");
+            var tImg = targetDot.gameObject.AddComponent<Image>();
+            tImg.color = new Color(1f, 0.3f, 0.3f, 1f);
+            targetDot.sizeDelta = new Vector2(20f, 20f);
+            targetDot.anchorMin = targetDot.anchorMax = new Vector2(0.5f, 0.5f);
+
+            // StatusText
+            var statusRT = CreateUIChild(hudGO.transform, "StatusText");
+            statusText = statusRT.gameObject.AddComponent<TextMeshProUGUI>();
+            statusText.text = "Procure o botão correto.";
+            statusText.fontSize = 28f;
+            statusText.alignment = TextAlignmentOptions.Center;
+            statusText.color = Color.white;
+            statusRT.anchorMin = new Vector2(0f, 0.25f);
+            statusRT.anchorMax = new Vector2(1f, 0.4f);
+            statusRT.offsetMin = new Vector2(10f, 0f);
+            statusRT.offsetMax = new Vector2(-10f, 0f);
+
+            // BlurIntensitySlider
+            var sliderLabelRT = CreateUIChild(hudGO.transform, "BlurLabel");
+            var sliderLabel = sliderLabelRT.gameObject.AddComponent<TextMeshProUGUI>();
+            sliderLabel.text = "Intensidade da catarata";
+            sliderLabel.fontSize = 20f;
+            sliderLabel.alignment = TextAlignmentOptions.Center;
+            sliderLabel.color = Color.white;
+            sliderLabelRT.anchorMin = new Vector2(0f, 0.15f);
+            sliderLabelRT.anchorMax = new Vector2(1f, 0.22f);
+            sliderLabelRT.offsetMin = sliderLabelRT.offsetMax = Vector2.zero;
+
+            blurSlider = CreateSlider(hudGO.transform, "BlurIntensitySlider", out var sliderRT);
+            sliderRT.anchorMin = new Vector2(0.1f, 0.05f);
+            sliderRT.anchorMax = new Vector2(0.9f, 0.13f);
+            sliderRT.offsetMin = sliderRT.offsetMax = Vector2.zero;
+            blurSlider.minValue = 0f;
+            blurSlider.maxValue = 1f;
+            blurSlider.value = 1f;
+            blurSlider.wholeNumbers = false;
+
+            // Rigidbody + Collider + LazyFollow — versão simplificada (sem grab) p/ hoje
+            var rb = hudGO.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+            rb.useGravity = false;
+            var col = hudGO.AddComponent<BoxCollider>();
+            col.size = new Vector3(0.4f, 0.5f, 0.02f);
+
+            hudGO.SetActive(false);
+            return hudGO;
+        }
+
+        private static RectTransform CreateUIChild(Transform parent, string name)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            return go.GetComponent<RectTransform>();
+        }
+
+        private static void AddGridLine(RectTransform parent, bool horizontal, float t)
+        {
+            var rt = CreateUIChild(parent, "GridLine");
+            var img = rt.gameObject.AddComponent<Image>();
+            img.color = new Color(0.3f, 0.45f, 0.3f, 0.6f);
+            if (horizontal)
+            {
+                rt.anchorMin = new Vector2(0f, t);
+                rt.anchorMax = new Vector2(1f, t);
+                rt.sizeDelta = new Vector2(0f, 1f);
+            }
+            else
+            {
+                rt.anchorMin = new Vector2(t, 0f);
+                rt.anchorMax = new Vector2(t, 1f);
+                rt.sizeDelta = new Vector2(1f, 0f);
+            }
+        }
+
+        private static Slider CreateSlider(Transform parent, string name, out RectTransform rt)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Slider));
+            go.transform.SetParent(parent, false);
+            rt = go.GetComponent<RectTransform>();
+
+            var bg = CreateUIChild(rt, "Background");
+            var bgImg = bg.gameObject.AddComponent<Image>();
+            bgImg.color = new Color(0.2f, 0.2f, 0.2f, 1f);
+            bg.anchorMin = new Vector2(0f, 0.4f);
+            bg.anchorMax = new Vector2(1f, 0.6f);
+            bg.offsetMin = bg.offsetMax = Vector2.zero;
+
+            var fillArea = CreateUIChild(rt, "Fill Area");
+            fillArea.anchorMin = new Vector2(0f, 0.4f);
+            fillArea.anchorMax = new Vector2(1f, 0.6f);
+            fillArea.offsetMin = new Vector2(5f, 0f);
+            fillArea.offsetMax = new Vector2(-5f, 0f);
+
+            var fill = CreateUIChild(fillArea, "Fill");
+            var fillImg = fill.gameObject.AddComponent<Image>();
+            fillImg.color = new Color(0.2f, 0.6f, 1f, 1f);
+            fill.anchorMin = Vector2.zero;
+            fill.anchorMax = Vector2.one;
+            fill.offsetMin = fill.offsetMax = Vector2.zero;
+
+            var handleArea = CreateUIChild(rt, "Handle Slide Area");
+            handleArea.anchorMin = new Vector2(0f, 0f);
+            handleArea.anchorMax = new Vector2(1f, 1f);
+            handleArea.offsetMin = new Vector2(10f, 0f);
+            handleArea.offsetMax = new Vector2(-10f, 0f);
+
+            var handle = CreateUIChild(handleArea, "Handle");
+            var handleImg = handle.gameObject.AddComponent<Image>();
+            handleImg.color = Color.white;
+            handle.sizeDelta = new Vector2(20f, 0f);
+
+            var slider = go.GetComponent<Slider>();
+            slider.targetGraphic = handleImg;
+            slider.fillRect = fill;
+            slider.handleRect = handle;
+            slider.direction = Slider.Direction.LeftToRight;
+            return slider;
+        }
+
+        // ───────────────────────────── PushButtons setup ─────────────────────────────
+
+        private List<ButtonMission> SetupPushButtons(out ButtonMission target)
+        {
+            target = null;
+            var found = new List<ButtonMission>();
+            var roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+            var allButtons = new List<GameObject>();
+            foreach (var root in roots)
+            {
+                CollectByName(root.transform, "PushButton", allButtons);
+            }
+
+            foreach (var go in allButtons)
+            {
+                if (go.GetComponent<ButtonMission>() != null) continue; // já configurado
+
+                if (go.GetComponent<Collider>() == null)
+                {
+                    var col = go.AddComponent<BoxCollider>();
+                    // Tenta dimensionar pela bounds dos filhos com renderer
+                    var rends = go.GetComponentsInChildren<Renderer>();
+                    if (rends.Length > 0)
+                    {
+                        var b = rends[0].bounds;
+                        for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                        col.center = go.transform.InverseTransformPoint(b.center);
+                        col.size = b.size;
+                    }
+                }
+
+                if (go.GetComponent<XRBaseInteractable>() == null)
+                {
+                    go.AddComponent<XRSimpleInteractable>();
+                }
+
+                var bm = go.AddComponent<ButtonMission>();
+                found.Add(bm);
+            }
+
+            if (found.Count > 0)
+            {
+                int idx = Mathf.Clamp(targetButtonIndex, 0, found.Count - 1);
+                found[idx].isTarget = true;
+                target = found[idx];
+            }
+            return found;
+        }
+
+        private static void CollectByName(Transform root, string contains, List<GameObject> result)
+        {
+            if (root.name.Contains(contains) && root.GetComponentInParent<ButtonMission>() == null)
+            {
+                // Pega o topo da subárvore PushButton, mas evita filhos profundos duplicados
+                if (!result.Contains(root.gameObject)) result.Add(root.gameObject);
+            }
+            for (int i = 0; i < root.childCount; i++)
+            {
+                CollectByName(root.GetChild(i), contains, result);
+            }
+        }
+
+        // ───────────────────────────── Input action ─────────────────────────────
+
+        private void CreateToggleAction()
+        {
+            _toggleAction = new InputAction("ToggleHUD", InputActionType.Button);
+            _toggleAction.AddBinding("<XRController>{LeftHand}/secondaryButton");
+            _toggleAction.AddBinding("<Keyboard>/h"); // fallback p/ teste sem headset
+            _toggleAction.Enable();
+        }
+
+        // ───────────────────────────── Reflection helpers ─────────────────────────────
+
+        private static void SetPrivate(object obj, string fieldName, object value)
+        {
+            var f = obj.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (f != null) f.SetValue(obj, value);
+            else Debug.LogWarning($"[Bootstrap] campo '{fieldName}' não encontrado em {obj.GetType().Name}");
+        }
+
+        private static void SetPrivateInputActionReference(object obj, string fieldName, InputAction action)
+        {
+            // HUDToggle espera um InputActionReference, mas criamos InputAction direto.
+            // Workaround: cria reference em runtime apontando para a action via asset criado em memória.
+            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = asset.AddActionMap("HUDMap");
+            var newAction = map.AddAction(action.name, InputActionType.Button);
+            foreach (var binding in action.bindings) newAction.AddBinding(binding.path);
+            asset.Enable();
+            var reference = InputActionReference.Create(newAction);
+            SetPrivate(obj, fieldName, reference);
+        }
+    }
+}

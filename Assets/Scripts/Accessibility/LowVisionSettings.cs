@@ -26,10 +26,32 @@ namespace Accessibility
         void Awake()
         {
             _volume = GetComponent<Volume>();
-            _volume.profile.TryGet(out _dof);
-            _volume.profile.TryGet(out _bloom);
-            _volume.profile.TryGet(out _color);
-            _volume.profile.TryGet(out _vignette);
+            _volume.isGlobal = true;
+            _volume.priority = 100f;
+
+            VolumeProfile profile = ScriptableObject.CreateInstance<VolumeProfile>();
+            profile.name = "LowVisionProfile (runtime)";
+
+            _dof = profile.Add<DepthOfField>(true);
+            _dof.mode.Override(DepthOfFieldMode.Bokeh);
+            _dof.focusDistance.Override(0.3f);
+            _dof.aperture.Override(maxAperture);
+            _dof.focalLength.Override(50f);
+
+            _bloom = profile.Add<Bloom>(true);
+            _bloom.intensity.Override(maxBloomIntensity);
+            _bloom.threshold.Override(0.8f);
+            _bloom.scatter.Override(0.7f);
+
+            _color = profile.Add<ColorAdjustments>(true);
+            _color.contrast.Override(minContrast);
+            _color.saturation.Override(minSaturation);
+
+            _vignette = profile.Add<Vignette>(true);
+            _vignette.intensity.Override(maxVignette);
+            _vignette.smoothness.Override(0.4f);
+
+            _volume.sharedProfile = profile;
             Apply();
         }
 
