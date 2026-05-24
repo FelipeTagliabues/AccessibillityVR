@@ -91,6 +91,9 @@ namespace Accessibility
             // Fallback de mouse para clicar nos botões em editor
             gameObject.AddComponent<MouseClickToButton>();
 
+            // HUD overlay camera — renderiza HUD/menus sem catarata
+            StartCoroutine(SetupHUDOverlayNextFrame());
+
             // MinimapTracker segue o botão da ordem atual, conforme MissionManager avança.
             // Tracker já recalcula a cada frame, basta trocar a referência de target.
             if (MissionManager.Instance != null)
@@ -244,6 +247,54 @@ namespace Accessibility
                 added++;
             }
             Debug.Log($"[AccessibilityBootstrap] CarHitDetector adicionado em {added} carro(s).");
+        }
+
+        private const int HudLayer = 5; // layer "UI" padrão do Unity
+
+        private System.Collections.IEnumerator SetupHUDOverlayNextFrame()
+        {
+            yield return null; // espera GameFlowUI.Start criar os menus
+            SetupHUDOverlay();
+        }
+
+        private void SetupHUDOverlay()
+        {
+            var mainCam = Camera.main;
+            if (mainCam == null) return;
+
+            // Cria overlay camera filha da Main Camera
+            var hudCamGO = new GameObject("HUD Overlay Camera");
+            hudCamGO.transform.SetParent(mainCam.transform, false);
+            var hudCam = hudCamGO.AddComponent<Camera>();
+            hudCam.clearFlags = CameraClearFlags.Depth;
+            hudCam.cullingMask = 1 << HudLayer;
+            hudCam.fieldOfView = mainCam.fieldOfView;
+            hudCam.nearClipPlane = mainCam.nearClipPlane;
+            hudCam.farClipPlane = mainCam.farClipPlane;
+
+            var hudData = hudCam.GetUniversalAdditionalCameraData();
+            hudData.renderType = CameraRenderType.Overlay;
+            hudData.renderPostProcessing = false;
+
+            var mainData = mainCam.GetUniversalAdditionalCameraData();
+            if (!mainData.cameraStack.Contains(hudCam)) mainData.cameraStack.Add(hudCam);
+            mainCam.cullingMask &= ~(1 << HudLayer); // main camera não renderiza a layer HUD
+
+            // Põe HUD + menus na layer UI (filhos diretos do bootstrap que tenham Canvas)
+            foreach (var canvas in GetComponentsInChildren<Canvas>(true))
+            {
+                SetLayerRecursive(canvas.gameObject, HudLayer);
+            }
+            Debug.Log("[AccessibilityBootstrap] HUD Overlay Camera configurada (sem post-process).");
+        }
+
+        private static void SetLayerRecursive(GameObject go, int layer)
+        {
+            go.layer = layer;
+            for (int i = 0; i < go.transform.childCount; i++)
+            {
+                SetLayerRecursive(go.transform.GetChild(i).gameObject, layer);
+            }
         }
 
         private void ConstrainPlayer()
