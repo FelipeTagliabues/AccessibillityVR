@@ -40,6 +40,7 @@ namespace Accessibility
             EnsureLowVisionVolume();
             EnableCameraPostProcessing();
             DisableTemplateClutter();
+            DisableSimulatorYTranslate();
             AddSceneColliders();
             ConstrainPlayer();
             RepositionPlayerNearBooth();
@@ -179,6 +180,25 @@ namespace Accessibility
             "Tutorial Player",
             "Spatial Panel",
         };
+
+        private void DisableSimulatorYTranslate()
+        {
+            // Anula a velocidade vertical do XR Interaction Simulator: Q/E não fazem mais nada.
+            int patched = 0;
+            foreach (var mb in FindObjectsOfType<MonoBehaviour>())
+            {
+                if (mb.GetType().Name != "XRInteractionSimulator") continue;
+                var type = mb.GetType();
+                var field = type.GetField("m_TranslateYSpeed",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (field != null && field.FieldType == typeof(float))
+                {
+                    field.SetValue(mb, 0f);
+                    patched++;
+                }
+            }
+            Debug.Log($"[AccessibilityBootstrap] translateYSpeed = 0 em {patched} XR Simulator(s).");
+        }
 
         private void DisableTemplateClutter()
         {
